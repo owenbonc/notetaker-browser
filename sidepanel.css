@@ -93,3 +93,4 @@ button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
 .execsum li{margin:3px 0}
 .lbl{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin-bottom:8px}
 .notethread{display:flex;flex-direction:column;gap:14px}
+.engine{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:99px;padding:2px 8px;white-space:nowrap}

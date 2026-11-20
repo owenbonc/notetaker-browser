@@ -163,6 +163,52 @@ function showTab(tab) {
   tab === 'chat' ? renderChat() : renderDb();
 }
 
+// ---------- Engine: Claude (local bridge, your subscription) when it's running, else Gemini Nano ----------
+const BRIDGE = 'http://127.0.0.1:8788';
+let engine = 'nano';
+const engineReady = fetch(BRIDGE + '/health', { signal: AbortSignal.timeout(1000) })
+  .then((r) => r.json()).then((j) => { if (j.ready) engine = 'claude'; }).catch(() => {})
+  .finally(() => { $('engine').textContent = engine === 'claude' ? 'Claude' : 'Gemini Nano'; });
+
+// The whole conversation as one Claude message: "Me:"/"Tutor:" lines, with the last 4 screenshots as images.
+function claudeContent(c, extra) {
+  const shots = c.messages.map((m, i) => (m.type === 'screenshot' ? i : -1)).filter((i) => i >= 0).slice(-4);
+  const content = [];
+  c.messages.forEach((m, i) => {
+    if (m.error) return;
+    if (m.type === 'screenshot') {
+      content.push({ type: 'text', text: `[Screenshot from ${m.title} (${m.url})]` });
+      if (shots.includes(i)) content.push({ type: 'image', source: { type: 'base64', media_type: m.dataUrl.slice(5, m.dataUrl.indexOf(';')), data: m.dataUrl.split(',')[1] } });
+    } else content.push({ type: 'text', text: `${m.role === 'assistant' ? 'Tutor' : 'Me'}: ${m.text}` });
+  });
+  if (extra) content.push({ type: 'text', text: extra });
+  return content;
+}
+
+async function* claudeStream(c, extra) {
+  const system = SYSTEM_PROMPT + ' The conversation is given as lines starting "Me:" and "Tutor:". Reply to the last request as the tutor, without any prefix.';
+  const r = await fetch(BRIDGE + '/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ system, content: claudeContent(c, extra) }) });
+  if (!r.ok) throw new Error(await r.text());
+  const reader = r.body.getReader();
+  const dec = new TextDecoder();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const t = dec.decode(value, { stream: true });
+    if (/^\s*⚠️ /.test(t)) throw new Error(t.trim());
+    yield t;
+  }
+}
+
+// Streams text deltas. `replayed`: the prompt is already the last message in the conversation.
+async function* answer(c, prompt, replayed) {
+  await engineReady;
+  if (engine === 'claude') { yield* claudeStream(c, replayed ? '' : prompt); return; }
+  const s = await getSession(c, replayed ? 1 : 0);
+  for await (const chunk of s.promptStreaming(prompt)) yield chunk;
+  checkQuota(s);
+}
+
 // ---------- Gemini Nano ----------
 const MODEL_OPTS = {
   expectedInputs: [{ type: 'text', languages: ['en'] }, { type: 'image' }],
@@ -222,6 +268,8 @@ window.onScreenshot = async ({ dataUrl, url, title, newConversation: fresh }) =>
   if (h && !c.sites.includes(h)) c.sites.push(h);
   await save();
   renderChat();
+  await engineReady;
+  if (engine !== 'nano') return; // Claude gets the screenshots with the next question
   const hadSession = sessions.has(c.id);
   try {
     const s = await getSession(c); // a fresh session already replays this screenshot
@@ -247,15 +295,14 @@ async function send() {
   busy = true;
   $('sendBtn').disabled = true;
   try {
-    const s = await getSession(c, 1); // the new question is sent by promptStreaming, not replayed
     const am = { role: 'assistant', type: 'text', text: '', at: now() };
     const row = msgEl(am);
     const bubble = row.querySelector('.bubble');
     bubble.classList.add('typing');
     $('thread').appendChild(row);
     scrollDown();
-    for await (const chunk of s.promptStreaming(text)) {
-      am.text = chunk.startsWith(am.text) ? chunk : am.text + chunk;
+    for await (const chunk of answer(c, text, true)) {
+      am.text += chunk;
       bubble.innerHTML = md(am.text);
       scrollDown();
     }
@@ -263,7 +310,6 @@ async function send() {
     c.messages.push(am);
     c.updatedAt = now();
     await save();
-    checkQuota(s);
   } catch (e) {
     $('thread').querySelector('.typing')?.closest('.row')?.remove();
     addError(c, e);
@@ -283,9 +329,8 @@ async function closeAndSave() {
   const label = btn.lastChild.textContent;
   btn.lastChild.textContent = 'Saving…';
   try {
-    const s = await getSession(c);
     let out = '';
-    for await (const chunk of s.promptStreaming(SUMMARY_PROMPT)) out = chunk.startsWith(out) ? chunk : out + chunk;
+    for await (const chunk of answer(c, SUMMARY_PROMPT, false)) out += chunk;
     const lines = out.split('\n').map((l) => l.trim()).filter(Boolean);
     const title = (lines[0] || 'Untitled').replace(/^#+\s*|^\*\*|\*\*$|^title:\s*/gi, '').replace(/\*\*/g, '').trim();
     const bullets = lines.slice(1).filter((l) => /^[-•*]\s+/.test(l)).map((l) => l.replace(/^[-•*]\s+/, '').replace(/\*\*/g, '')).slice(0, 3);

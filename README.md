@@ -13,7 +13,22 @@ A Chrome extension with a side panel. Press a shortcut, drag a box over a diagra
 - **Chrome desktop** (Windows, macOS or Linux). Brave and mobile browsers do not ship Gemini Nano.
 - 22 GB free disk, plus a GPU with more than 4 GB VRAM, or 16 GB RAM and 4+ CPU cores.
 
-## Set up Gemini Nano (once)
+## Use your Claude subscription (recommended)
+
+The tutor runs on Claude through Claude Code on your own plan, so it costs nothing beyond your subscription and works on any Mac. A small local bridge (`server.mjs`) runs `claude -p` with none of your CLAUDE.md, hooks, plugins, MCP servers or settings.
+
+1. Install [Claude Code](https://docs.claude.com/en/docs/claude-code) and Node 18+.
+2. Run `claude setup-token`. It opens your browser, asks you to approve, then prints a long-lived token. Copy it.
+3. In the repo folder, copy `.env.example` to `.env` and paste the token after `CLAUDE_CODE_OAUTH_TOKEN=`. `.env` is gitignored.
+4. Start the bridge and leave it running:
+   ```bash
+   node server.mjs
+   ```
+5. Open (or reopen) the side panel. The chip next to the conversation title says **Claude**.
+
+When the bridge isn't running, the extension falls back to Gemini Nano and the chip says **Gemini Nano**. The bridge only listens on `127.0.0.1` and only answers requests from a Chrome extension, so web pages can't use your plan.
+
+## Set up Gemini Nano (optional, fully on-device)
 
 The model is a multi-GB download, so do this before you need it.
 
@@ -66,7 +81,7 @@ If `Alt+Shift+S` clashes with another shortcut, change it at `chrome://extension
 
 | Problem | Fix |
 |---|---|
-| Red error bubble in the chat | Gemini Nano isn't ready. Redo [Set up Gemini Nano](#set-up-gemini-nano-once) |
+| Red error bubble in the chat | With Claude: check the terminal running `node server.mjs`; an expired token means run `claude setup-token` again and update `.env`. With Gemini Nano: redo [Set up Gemini Nano](#set-up-gemini-nano-optional-fully-on-device) |
 | Shortcut does nothing on a page | Chrome blocks extensions on `chrome://` pages and the Chrome Web Store. Try a normal website |
 | Side panel didn't open from the shortcut | Click the Notetaker toolbar icon; the screenshot is waiting there |
 | "Conversation is full" banner | Gemini Nano's context is nearly used up. Click **Save** or start a new conversation |
@@ -82,6 +97,7 @@ Manifest V3, plain HTML, CSS and JavaScript, no build step. Everything is stored
 | `overlay.js` | Dims the page and lets you drag a selection box |
 | `panel-bridge.js` | Passes screenshots from the background to the side panel |
 | `export.js` | Turns a conversation into Markdown and downloads it |
-| `sidepanel.html`, `sidepanel.css`, `sidepanel.js` | Chat, Gemini Nano, ongoing list, database |
+| `sidepanel.html`, `sidepanel.css`, `sidepanel.js` | Chat (Claude or Gemini Nano), ongoing list, database |
+| `server.mjs` | Local bridge to Claude Code on your subscription |
 
 The original design spec, team split and demo script are in [SPEC.md](SPEC.md).
