@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Notetaker",
+  "version": "0.1.0",
+  "description": "Screenshot part of a page and chat about it in the side panel.",
+  "permissions": ["sidePanel", "storage", "unlimitedStorage", "scripting", "tabs", "activeTab"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "action": { "default_title": "Open Notetaker" },
+  "commands": {
+    "take-note": {
+      "suggested_key": { "default": "Alt+Shift+S", "mac": "Alt+Shift+S" },
+      "description": "Select an area of the page to screenshot"
+    }
+  }
+}
