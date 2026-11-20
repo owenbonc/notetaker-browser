@@ -148,7 +148,7 @@ const MODEL_OPTS = {
   expectedOutputs: [{ type: 'text', languages: ['en'] }],
 };
 
-async function getSession(c) {
+async function getSession(c, skipLast = 0) {
   if (sessions.has(c.id)) return sessions.get(c.id);
   if (typeof LanguageModel === 'undefined') throw new Error('Gemini Nano is not available in this browser. Enable the Prompt API flags in chrome://flags and restart Chrome.');
   const avail = await LanguageModel.availability(MODEL_OPTS);
@@ -156,7 +156,7 @@ async function getSession(c) {
   // Replay: keep only the last 2 screenshots as images, older ones become text lines.
   const shotIdx = c.messages.map((m, i) => (m.type === 'screenshot' ? i : -1)).filter((i) => i >= 0).slice(-2);
   const initialPrompts = [{ role: 'system', content: SYSTEM_PROMPT }];
-  for (const [i, m] of c.messages.entries()) {
+  for (const [i, m] of c.messages.slice(0, c.messages.length - skipLast).entries()) {
     if (m.error) continue;
     if (m.type === 'screenshot') {
       const line = { type: 'text', value: `Screenshot from ${m.title} (${m.url})` };
@@ -226,7 +226,7 @@ async function send() {
   busy = true;
   $('sendBtn').disabled = true;
   try {
-    const s = await getSession(c);
+    const s = await getSession(c, 1); // the new question is sent by promptStreaming, not replayed
     const am = { role: 'assistant', type: 'text', text: '', at: now() };
     const row = msgEl(am);
     const bubble = row.querySelector('.bubble');
