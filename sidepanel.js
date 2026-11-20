@@ -106,6 +106,25 @@ function renderOngoing() {
   }
 }
 
+const reopen = (c) => { c.status = 'ongoing'; c.updatedAt = now(); activeId = c.id; save(); showTab('chat'); };
+const exportNote = (c) => (window.exportMarkdown ? window.exportMarkdown(c) : console.log('exportMarkdown missing', c));
+
+// Read view of a saved note: executive summary plus the full conversation.
+function openNote(c) {
+  document.querySelector('.noteview')?.remove();
+  const v = document.createElement('div');
+  v.className = 'noteview';
+  v.innerHTML = `<div class="notebar"><button class="back">← Back</button><span></span><button class="outline plain" data-a="export">Export .md</button><button class="primary" data-a="reopen">Reopen</button></div>
+    <div class="notebody"><h2>${esc(c.title || 'Untitled')}</h2><div class="meta">${esc(c.sites.join(', '))} · ${fmtDate(c.closedAt || c.updatedAt)}</div>
+    <div class="execsum"><div class="lbl">Executive summary</div><ul>${(c.summary || []).map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>
+    <div class="lbl">Conversation</div><div class="notethread"></div></div>`;
+  c.messages.filter((m) => !m.error).forEach((m) => v.querySelector('.notethread').appendChild(msgEl(m)));
+  v.querySelector('.back').onclick = () => v.remove();
+  v.querySelector('[data-a=export]').onclick = () => exportNote(c);
+  v.querySelector('[data-a=reopen]').onclick = () => reopen(c);
+  $('db').appendChild(v);
+}
+
 function renderDb() {
   const q = $('search').value.trim().toLowerCase();
   const closed = conversations.filter((c) => c.status === 'closed').sort((a, b) => (b.closedAt || '').localeCompare(a.closedAt || ''));
@@ -128,14 +147,16 @@ function renderDb() {
     menu.onclick = (e) => {
       const a = e.target.dataset.a;
       menu.classList.add('hidden');
-      if (a === 'reopen') { c.status = 'ongoing'; c.updatedAt = now(); activeId = c.id; save(); showTab('chat'); }
-      if (a === 'export') window.exportMarkdown ? window.exportMarkdown(c) : console.log('exportMarkdown missing', c);
+      if (a === 'reopen') reopen(c);
+      if (a === 'export') exportNote(c);
     };
+    el.onclick = (e) => { if (!e.target.closest('.more, .menu')) openNote(c); };
     cards.appendChild(el);
   }
 }
 
 function showTab(tab) {
+  document.querySelector('.noteview')?.remove();
   document.querySelectorAll('.seg button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
   $('chat').classList.toggle('hidden', tab !== 'chat');
   $('db').classList.toggle('hidden', tab !== 'db');

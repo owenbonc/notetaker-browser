@@ -57,6 +57,7 @@ If `Alt+Shift+S` clashes with another shortcut, change it at `chrome://extension
 
 **Database tab**
 - Every saved conversation as a card: thumbnail, title, summary, website and date. Use the search box to filter.
+- **Click a card to open the note:** its executive summary and the full conversation, screenshots included, with **Export .md** and **Reopen** at the top.
 - The **•••** menu on a card:
   - **Reopen** moves it back to ongoing so you can keep asking. Its summary is rewritten the next time you save.
   - **Export .md** downloads the full conversation, screenshots included, as a Markdown file.
