@@ -119,7 +119,7 @@ function renderDb() {
     el.className = 'card';
     el.innerHTML = `${shot ? `<img class="thumb" src="${shot.dataUrl}" alt="">` : '<div class="thumb"></div>'}
       <div class="body"><h3>${esc(c.title || 'Untitled')}</h3>
-      <div class="sum">${esc((c.summary || []).join(' '))}</div>
+      <div class="sum">${esc((c.summary || []).join(' · '))}</div>
       <div class="meta"><span>${esc(c.sites.join(', '))}</span><span>${fmtDate(c.closedAt || c.updatedAt)}</span></div></div>
       <button class="more" title="More">•••</button>
       <div class="menu hidden"><button data-a="reopen">Reopen</button><button data-a="export">Export .md</button></div>`;

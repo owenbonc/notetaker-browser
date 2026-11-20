@@ -8,7 +8,7 @@ button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
 .top{background:#fff;border-bottom:1px solid var(--line)}
 .brand{display:flex;align-items:center;gap:10px;padding:12px 16px;font-size:17px;font-weight:600;border-bottom:1px solid var(--line)}
 .spark{width:24px;height:24px;stroke:none}
-.bar{display:flex;align-items:center;gap:10px;padding:10px 12px}
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 12px}
 .outline{display:flex;align-items:center;gap:6px;border:1.5px solid var(--accent);color:var(--accent);border-radius:10px;padding:7px 12px;font-weight:500;white-space:nowrap;background:#fff}
 .outline:hover{background:var(--lav2)}
 .outline.plain{border-color:var(--line);color:var(--text)}
