@@ -9,9 +9,9 @@ Built in 45 minutes. This README is the spec: the demo script below is the accep
 ## Demo script (~90 seconds)
 
 1. Open a Wikipedia page with a diagram (for example the Krebs cycle).
-2. Press `Alt+Shift+S`, the page dims, drag a box over the diagram.
-3. The screenshot appears in the side panel's **Chat** tab. Ask "Explain this like I'm 15", and the answer streams in.
-4. Switch to a second site, screenshot a related passage, and ask "How does this connect to the diagram?" The same conversation continues across both sites.
+2. With the side panel closed, press `Alt+Shift+S`. The side panel opens on a fresh conversation, the page dims, and you drag a box over the diagram.
+3. The screenshot drops into the **Chat** tab automatically. Ask "Explain this like I'm 15", and the answer streams in.
+4. Keeping the side panel open, switch to a second site, screenshot a related passage, and ask "How does this connect to the diagram?" The same conversation continues across both sites.
 5. Open the conversation list: the conversation is listed under **Ongoing**, next to one prepared earlier. Click **Close & save**.
 6. Open the **Database** tab. A new row shows the thumbnail, title, sites and a 3-bullet summary.
 7. Expand the row to see the full conversation, then click **Export .md** and open the file.
@@ -27,7 +27,11 @@ Built in 45 minutes. This README is the spec: the demo script below is the accep
   - **Closed:** the user clicked **Close & save**. The executive summary (title plus 3 bullets) is generated at that moment and the conversation becomes a row in the database.
 - **Several conversations can be ongoing at once.** Switching between them, or closing the side panel, leaves them ongoing. Only **Close & save** summarizes and moves a conversation to the database.
 - **Only one conversation is active** (shown in the Chat tab) at a time.
-- **The shortcut starts a fresh conversation when none is active**: on first use, after **+ New conversation**, and after the active one was closed. Otherwise the screenshot joins the active conversation, from any site. Each screenshot keeps its own URL and page title, so the model knows where every image came from.
+- **The shortcut's behaviour depends on whether the side panel is open:**
+  - **Side panel closed:** the shortcut opens the side panel and starts a **fresh conversation**. The screenshot becomes its first message.
+  - **Side panel open:** the screenshot joins the conversation currently shown in the Chat tab, whatever site it was taken on. If the user switched to another conversation from the list, it goes into that one. If the Chat tab is empty (after **+ New conversation** or **Close & save**), it starts a fresh conversation.
+- **Screenshots always land in the side panel automatically.** No pasting. If the Database tab is showing, the panel switches to the Chat tab.
+- Each screenshot keeps its own URL and page title, so the model knows where every image came from.
 - **Closed conversations can be reopened.** Opening one from the Database tab moves it back to ongoing and makes it active: new questions and screenshots append to it, and the summary is rewritten the next time it is closed.
 
 ### UI: Chrome side panel with two tabs
@@ -85,12 +89,15 @@ sidepanel.css      styles
 
 ### Capture flow
 
-1. `chrome.commands.onCommand` (`take-note`) fires in `background.js`.
-2. Background injects `overlay.js` into the active tab with `chrome.scripting.executeScript`.
-3. The overlay dims the page and lets the user drag a box. On mouseup it removes itself and returns `{x, y, width, height, devicePixelRatio}`. Esc cancels.
-4. Background calls `chrome.tabs.captureVisibleTab()`, then crops with `OffscreenCanvas`, **multiplying the rectangle by `devicePixelRatio`**.
-5. Background sends `{type: 'screenshot', dataUrl, url, title}` to the side panel with `chrome.runtime.sendMessage`.
-6. The side panel appends it to the active conversation, or creates a fresh ongoing conversation if none is active.
+**Knowing whether the side panel is open.** When `sidepanel.js` loads, it opens a port with `chrome.runtime.connect({ name: 'panel' })` and sends its window id (from `chrome.windows.getCurrent()`). Background keeps a `Set` of window ids with an open panel, removing one when its port disconnects. If the port drops while the panel is still open (the service worker restarted), the panel reconnects at once.
+
+1. `chrome.commands.onCommand` (`take-note`, `tab`) fires in `background.js`.
+2. Background checks the set. If the panel is **closed** in `tab.windowId`, it calls `chrome.sidePanel.open({ windowId: tab.windowId })` **immediately, before any `await`** (Chrome only allows it during the user gesture), and marks this capture `newConversation: true`.
+3. Background injects `overlay.js` into the active tab with `chrome.scripting.executeScript`.
+4. The overlay dims the page and lets the user drag a box. On mouseup it removes itself and returns `{x, y, width, height, devicePixelRatio}`. Esc cancels. If the panel was just opened, the cancelled capture still leaves the fresh, empty conversation showing.
+5. Background calls `chrome.tabs.captureVisibleTab()`, then crops with `OffscreenCanvas`, **multiplying the rectangle by `devicePixelRatio`**.
+6. Background sends `{type: 'screenshot', dataUrl, url, title, newConversation}` to the panel over its port. If the panel was just opened, it holds the message until the panel's port connects.
+7. The panel switches to the Chat tab. If `newConversation` is true, or the Chat tab is empty, it creates a fresh ongoing conversation and makes it active. Otherwise it appends the screenshot to the conversation currently shown.
 
 ### Gemini Nano (Prompt API)
 
@@ -204,7 +211,7 @@ If a milestone slips, cut scope, never the freeze.
 | Risk | Fallback | Decide by |
 |---|---|---|
 | Image input to Nano does not work | A note captures the **highlighted text** on the page instead of a screenshot (with URL); UI unchanged | T+10 |
-| `chrome.sidePanel.open()` refused from the keyboard shortcut | Open the side panel once at the start of the demo; the shortcut only captures | T+5 |
+| `chrome.sidePanel.open()` refused from the keyboard shortcut | The shortcut still creates the fresh conversation in storage (set `activeId`), and the panel shows it when the user clicks the toolbar icon | T+5 |
 | Nano is slow (5–15 s per answer) | Streaming output; demo uses pre-tested pages and prepared questions | T+18 |
 | Several screenshots overflow the context window | "Conversation is full" banner; reopened conversations keep only the last 2 images | T+26 |
 | Several ongoing sessions use too much memory | Keep only the active conversation's session in memory; rebuild others when switched to | T+26 |
