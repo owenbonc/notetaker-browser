@@ -318,7 +318,8 @@ function autosize() {
 
 // ---------- Wiring ----------
 document.querySelectorAll('.seg button').forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
-$('newBtn').onclick = () => { activeId = null; save(); showTab('chat'); };
+window.onNewConversation = () => { activeId = null; save(); showTab('chat'); };
+$('newBtn').onclick = window.onNewConversation;
 $('sendBtn').onclick = send;
 $('saveBtn').onclick = closeAndSave;
 $('input').addEventListener('input', autosize);
@@ -335,8 +336,8 @@ document.addEventListener('click', (e) => {
 const loaded = chrome.storage.local.get(['conversations', 'activeId']).then((r) => {
   // Keep anything onScreenshot created before storage loaded.
   conversations = [...(r.conversations || []), ...conversations];
-  activeId = activeId || r.activeId || null;
-  if (active()?.status !== 'ongoing') activeId = null;
+  // The panel always opens on a blank chat; ongoing conversations stay in the Ongoing list.
+  activeId = activeId || null;
   renderChat();
 });
 renderChat();

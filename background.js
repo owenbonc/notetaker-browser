@@ -2,11 +2,13 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(consol
 
 const ports = new Map();   // windowId -> panel port
 const pending = new Map(); // windowId -> queued messages
+const visible = new Map(); // windowId -> is the panel showing (Chrome keeps a closed panel alive but hidden)
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'panel') return;
   let windowId = null;
   port.onMessage.addListener((msg) => {
+    if (msg && typeof msg.windowId === 'number' && 'visible' in msg) visible.set(msg.windowId, msg.visible);
     if (msg && typeof msg.windowId === 'number' && windowId === null) {
       windowId = msg.windowId;
       ports.set(windowId, port);
@@ -16,7 +18,7 @@ chrome.runtime.onConnect.addListener((port) => {
     }
   });
   port.onDisconnect.addListener(() => {
-    if (windowId !== null && ports.get(windowId) === port) ports.delete(windowId);
+    if (windowId !== null && ports.get(windowId) === port) { ports.delete(windowId); visible.delete(windowId); }
   });
 });
 
@@ -33,13 +35,17 @@ chrome.commands.onCommand.addListener((command, tab) => {
   if (command !== 'take-note' || !tab) return;
   const windowId = tab.windowId;
   let newConversation = false;
-  if (!ports.has(windowId)) {
+  if (!ports.has(windowId) || visible.get(windowId) === false) {
     newConversation = true;
     // Must run synchronously inside the user gesture, before any await.
     try { chrome.sidePanel.open({ windowId }).catch((e) => console.warn('sidePanel.open failed', e)); }
     catch (e) { console.warn('sidePanel.open failed', e); }
+    send(windowId, { type: 'new' }); // show a blank conversation while the user drags
   }
-  capture(tab, newConversation).catch((e) => console.warn('Notetaker capture failed (restricted page?)', e));
+  capture(tab, newConversation).catch((e) => {
+    console.warn('Notetaker capture failed', e);
+    send(windowId, { type: 'error', message: `Couldn't capture this page: ${e.message || e}` });
+  });
 });
 
 async function capture(tab, newConversation) {
