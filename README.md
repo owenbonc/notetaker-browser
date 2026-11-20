@@ -71,13 +71,17 @@ Nothing on the demo path is faked.
 Manifest V3, plain HTML/CSS/JS, no build step, loaded unpacked.
 
 ```
-manifest.json      permissions, side panel, Alt+Shift+S command
-background.js      service worker: handles the command, captures and crops the tab
-overlay.js         injected into the page: dims it, lets the user drag a box, returns the rectangle
-sidepanel.html     the two tabs
-sidepanel.js       chat (Gemini Nano), ongoing list, database table, storage, Markdown export
-sidepanel.css      styles
+manifest.json      [A] permissions, side panel, Alt+Shift+S command
+background.js      [A] service worker: handles the command, opens the panel, captures and crops the tab
+overlay.js         [A] injected into the page: dims it, lets the user drag a box, returns the rectangle
+panel-bridge.js    [A] loaded by the side panel: port to background, hands screenshots to the panel
+export.js          [A] turns a conversation into Markdown and downloads it
+sidepanel.html     [B] the two tabs
+sidepanel.js       [B] chat (Gemini Nano), ongoing list, database table, storage
+sidepanel.css      [B] styles
 ```
+
+`[A]` and `[B]` are the owners; see [Team split](#team-split).
 
 ### Manifest essentials
 
@@ -89,7 +93,7 @@ sidepanel.css      styles
 
 ### Capture flow
 
-**Knowing whether the side panel is open.** When `sidepanel.js` loads, it opens a port with `chrome.runtime.connect({ name: 'panel' })` and sends its window id (from `chrome.windows.getCurrent()`). Background keeps a `Set` of window ids with an open panel, removing one when its port disconnects. If the port drops while the panel is still open (the service worker restarted), the panel reconnects at once.
+**Knowing whether the side panel is open.** When `panel-bridge.js` loads, it opens a port with `chrome.runtime.connect({ name: 'panel' })` and sends its window id (from `chrome.windows.getCurrent()`). Background keeps a `Set` of window ids with an open panel, removing one when its port disconnects. If the port drops while the panel is still open (the service worker restarted), the panel reconnects at once.
 
 1. `chrome.commands.onCommand` (`take-note`, `tab`) fires in `background.js`.
 2. Background checks the set. If the panel is **closed** in `tab.windowId`, it calls `chrome.sidePanel.open({ windowId: tab.windowId })` **immediately, before any `await`** (Chrome only allows it during the user gesture), and marks this capture `newConversation: true`.
@@ -97,7 +101,7 @@ sidepanel.css      styles
 4. The overlay dims the page and lets the user drag a box. On mouseup it removes itself and returns `{x, y, width, height, devicePixelRatio}`. Esc cancels. If the panel was just opened, the cancelled capture still leaves the fresh, empty conversation showing.
 5. Background calls `chrome.tabs.captureVisibleTab()`, then crops with `OffscreenCanvas`, **multiplying the rectangle by `devicePixelRatio`**.
 6. Background sends `{type: 'screenshot', dataUrl, url, title, newConversation}` to the panel over its port. If the panel was just opened, it holds the message until the panel's port connects.
-7. The panel switches to the Chat tab. If `newConversation` is true, or the Chat tab is empty, it creates a fresh ongoing conversation and makes it active. Otherwise it appends the screenshot to the conversation currently shown.
+7. `panel-bridge.js` passes the message to `window.onScreenshot(msg)` in `sidepanel.js`. The panel switches to the Chat tab. If `newConversation` is true, or the Chat tab is empty, it creates a fresh ongoing conversation and makes it active. Otherwise it appends the screenshot to the conversation currently shown.
 
 ### Gemini Nano (Prompt API)
 
@@ -160,7 +164,7 @@ Save after every message, so a crash loses nothing. The thumbnail is the first s
 
 ### Markdown export
 
-Build the file in the side panel and download it with a `Blob` and an `<a download>` link, named `<date>-<title>.md`:
+`export.js` builds the file in the side panel and downloads it with a `Blob` and an `<a download>` link, named `<date>-<title>.md`:
 
 ```md
 # How the Krebs cycle makes energy
@@ -179,6 +183,67 @@ Build the file in the side panel and download it with a `Blob` and an `<a downlo
 
 **Tutor:** …
 ```
+
+## Team split
+
+Two halves that never edit the same file. They meet at two small contracts, so each person can build and test alone and the pieces combine by simply being in the same folder.
+
+| | **Person A: Capture & export** | **Person B: Side panel & AI** |
+|---|---|---|
+| Owns | `manifest.json`, `background.js`, `overlay.js`, `panel-bridge.js`, `export.js` | `sidepanel.html`, `sidepanel.js`, `sidepanel.css` |
+| Builds | Shortcut, page overlay, drag box, crop, opening the panel, open/closed detection, new-vs-append flag, Markdown export | Two tabs, ChatGPT-style chat, Gemini Nano sessions, ongoing list, Close & save summary, database table, storage |
+| Never touches | B's files, the data model in storage | A's files, Chrome extension APIs other than `chrome.storage` |
+
+### Contracts
+
+**1. Screenshot handoff** (A calls, B implements). `panel-bridge.js` calls this function, which `sidepanel.js` defines:
+
+```js
+window.onScreenshot = ({ dataUrl, url, title, newConversation }) => { /* B */ };
+```
+
+`dataUrl` is a cropped PNG `data:` URL. `newConversation` is `true` when the shortcut opened the panel.
+
+**2. Markdown export** (B calls, A implements). `export.js` defines this function, which B's **Export .md** button calls with one conversation object from the [data model](#data-model):
+
+```js
+window.exportMarkdown(conversation); // builds the .md and downloads it
+```
+
+**Script order in `sidepanel.html`** (B writes it once, at T+3, and never changes it):
+
+```html
+<script src="panel-bridge.js"></script>
+<script src="export.js"></script>
+<script src="sidepanel.js"></script>
+```
+
+`panel-bridge.js` must wait for `window.onScreenshot` to exist (hold messages until `DOMContentLoaded`). The data model section above is the shared definition: B writes it, A reads it.
+
+### Testing alone
+
+- **A** opens the panel and watches the panel's DevTools console: until B's `onScreenshot` exists, `panel-bridge.js` logs every message it would hand over. A tests `exportMarkdown` by calling it from that console with the sample conversation from the data model.
+- **B** fakes a screenshot from the panel's DevTools console, no capture code needed:
+  ```js
+  onScreenshot({ dataUrl: '<any image data URL>', url: 'https://en.wikipedia.org/wiki/Citric_acid_cycle', title: 'Citric acid cycle - Wikipedia', newConversation: true })
+  ```
+  Until A's `export.js` lands, the Export button logs the conversation instead.
+
+### Git
+
+Both commit straight to `main`, only their own files, and run `git pull --rebase` before every push. Disjoint files mean no merge conflicts. If a change to the other person's file is needed, ask them to make it.
+
+### Timeline per person
+
+| By | Person A | Person B |
+|---|---|---|
+| T+3 | Commit `manifest.json` (with `side_panel.default_path: sidepanel.html`) | Commit `sidepanel.html` with both tabs and the script tags above |
+| T+8 | Shortcut → overlay → crop → message logged in the panel console | Chat layout, `onScreenshot` shows the image in the thread |
+| **T+10** | **Integration check together:** a real screenshot appears in B's chat | ← same |
+| T+18 | Panel open/closed detection, `newConversation` flag, Esc cancel, blocked-page handling | Gemini Nano streaming answers with image + URL |
+| T+26 | `exportMarkdown` done; then test the demo pages for blocked overlays | Ongoing list and switching, Close & save summary, database table with reopen |
+| **T+31** | **Freeze. Run the demo script together** | ← same |
+| T+40 | Records the demo video and fills in the submission | Fixes demo-breaking bugs, prepares the demo browser profile |
 
 ## Setup (do this before the clock starts)
 
@@ -211,7 +276,7 @@ If a milestone slips, cut scope, never the freeze.
 | Risk | Fallback | Decide by |
 |---|---|---|
 | Image input to Nano does not work | A note captures the **highlighted text** on the page instead of a screenshot (with URL); UI unchanged | T+10 |
-| `chrome.sidePanel.open()` refused from the keyboard shortcut | The shortcut still creates the fresh conversation in storage (set `activeId`), and the panel shows it when the user clicks the toolbar icon | T+5 |
+| `chrome.sidePanel.open()` refused from the keyboard shortcut | Background holds the screenshot with `newConversation: true` and delivers it as soon as the user opens the panel from the toolbar icon | T+5 |
 | Nano is slow (5–15 s per answer) | Streaming output; demo uses pre-tested pages and prepared questions | T+18 |
 | Several screenshots overflow the context window | "Conversation is full" banner; reopened conversations keep only the last 2 images | T+26 |
 | Several ongoing sessions use too much memory | Keep only the active conversation's session in memory; rebuild others when switched to | T+26 |
